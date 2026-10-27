@@ -1,0 +1,1630 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>꿈-과제 게임 프로토타입 v15</title>
+<style>
+  html, body {
+    margin: 0; padding: 0; overflow: hidden;
+    background: #1a1a2e; width: 100%; height: 100%; touch-action: none;
+  }
+  #gameContainer { position: relative; width: 100vw; height: 100vh; }
+  canvas { display: block; width: 100%; height: 100%; image-rendering: pixelated; image-rendering: crisp-edges; }
+  #hud {
+    position: absolute; top: 10px; left: 10px;
+    color: rgba(255,255,255,0.85); font-family: monospace; font-size: 12px;
+    z-index: 10; line-height: 1.5; text-shadow: 1px 1px 0 #000;
+  }
+  #settingsBtn {
+    position: absolute; top: 10px; right: 10px; z-index: 10;
+    width: 40px; height: 40px; border-radius: 8px;
+    background: rgba(255,255,255,0.25); border: 2px solid rgba(255,255,255,0.6);
+    color: white; font-size: 20px; display: none;
+    align-items: center; justify-content: center; user-select: none;
+  }
+  #settingsBtn.show { display: flex; }
+  #clearMsg {
+    position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    color: white; font-family: monospace; font-size: 28px; font-weight: bold;
+    text-shadow: 2px 2px 0 #000; display: none; z-index: 20; text-align:center;
+  }
+  #dpad { position: absolute; right: 20px; bottom: 20px; width: 150px; height: 150px; z-index: 10; }
+  .dbtn {
+    position: absolute; width: 50px; height: 50px;
+    background: rgba(255,255,255,0.25); border: 3px solid rgba(255,255,255,0.6);
+    color: white; font-size: 22px; font-family: monospace;
+    display: flex; align-items: center; justify-content: center;
+    user-select: none; -webkit-user-select: none;
+  }
+  .dbtn:active { background: rgba(255,255,255,0.5); }
+  .dbtn.locked { background: rgba(80,80,90,0.35); border-color: rgba(200,200,210,0.5); }
+  @keyframes unlockPop {
+    0% { transform: scale(1); background: rgba(255,255,255,0.25); }
+    40% { transform: scale(1.35); background: rgba(255,224,138,0.9); }
+    100% { transform: scale(1); background: rgba(255,255,255,0.25); }
+  }
+  .dbtn.unlockAnim { animation: unlockPop 0.45s ease; }
+  #dUp    { left: 50px; top: 0; }
+  #dDown  { left: 50px; top: 100px; }
+  #dLeft  { left: 0;   top: 50px; }
+  #dRight { left: 100px; top: 50px; }
+
+  .overlay {
+    position: fixed; inset: 0; z-index: 50;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    background: rgba(20,15,35,0.92); color: white; font-family: monospace; text-align: center;
+    padding: 20px; box-sizing: border-box;
+    opacity: 0; visibility: hidden; pointer-events: none; transform: scale(0.85);
+    transition: opacity 0.25s ease, transform 0.25s ease, visibility 0s linear 0.25s;
+  }
+  .overlay.show {
+    opacity: 1; visibility: visible; pointer-events: auto; transform: scale(1);
+    transition: opacity 0.25s ease, transform 0.25s ease, visibility 0s linear 0s;
+  }
+  .overlay h1 { font-size: 30px; margin-bottom: 8px; text-shadow: 2px 2px 0 #ff9fc0; }
+  .overlay p { opacity: 0.75; margin: 4px 0 20px; font-size: 13px; }
+  .bigBtn {
+    padding: 14px 40px; font-size: 18px; font-family: monospace; cursor: pointer;
+    background: #ff9fc0; color: #3a1a2a; border: 3px solid #ffe1ec; border-radius: 6px;
+    margin: 6px;
+  }
+  .bigBtn:active { background: #ff7fa8; }
+  .bigBtn.selected { background: #ffe08a; border-color: #fff2c9; }
+  #rotateBlock .icon { font-size: 48px; margin-bottom: 10px; }
+  #settingsScreen .row { margin: 6px 0; }
+  #settingsHint { font-size: 12px; opacity: 0.6; margin-top: 16px; }
+  #quizAnswer {
+    font-family: monospace; font-size: 22px; text-align: center; width: 100px;
+    padding: 8px; border-radius: 6px; border: 2px solid #ffe1ec; margin-bottom: 12px;
+  }
+  #quizFeedback { color: #ff8fae; min-height: 18px; font-size: 13px; margin-top: 6px; }
+  #quizDirLabel { font-size: 12px; opacity: 0.7; margin-bottom: 4px; }
+</style>
+</head>
+<body>
+<div id="gameContainer">
+  <canvas id="gameCanvas"></canvas>
+  <div id="hud">방향키/WASD를 꾹 눌렀다 떼면 그 방향으로 발사됨 (각 방향은 개별적으로 잠금 해제됨)</div>
+  <div id="settingsBtn">⚙</div>
+  <div id="inventoryBar" style="position:absolute; bottom:14px; left:14px; z-index:10; display:flex; gap:6px;"></div>
+  <div id="interactPrompt" style="display:none; position:absolute; bottom:90px; left:50%; transform:translateX(-50%); z-index:10; background:rgba(0,0,0,0.5); color:#fff; font-family:monospace; font-size:12px; padding:5px 10px; border-radius:6px;">E 상호작용</div>
+  <div id="tutorialBoxPopup" style="display:none; position:absolute; top:22%; left:50%; transform:translateX(-50%); z-index:16;
+       background:rgba(15,10,30,0.85); border:2px solid rgba(255,224,138,0.5); border-radius:10px; padding:12px 18px;
+       color:#ffe9c2; font-family:monospace; font-size:13px; text-align:center; max-width:78%; transition:opacity 0.3s ease; opacity:0;">
+    왠지... 방향키를 해금할 수 있을 것 같은 느낌이 든다...!
+  </div>
+  <div id="boxNoticeText" style="display:none; position:absolute; top:60%; left:50%; transform:translateX(-50%); z-index:16;
+       background:rgba(15,10,30,0.85); border:2px solid rgba(255,255,255,0.4); border-radius:10px; padding:10px 16px;
+       color:#fff; font-family:monospace; font-size:13px; text-align:center;">
+    저 상자는 뭐지?
+  </div>
+  <div id="clearMsg">🎉 모든 맵 클리어!</div>
+  <div id="dpad">
+    <div class="dbtn" id="dUp">▲</div>
+    <div class="dbtn" id="dDown">▼</div>
+    <div class="dbtn" id="dLeft">◀</div>
+    <div class="dbtn" id="dRight">▶</div>
+  </div>
+  <div class="dbtn" id="interactBtn" style="right:20px; bottom:180px; left:auto; top:auto; position:absolute; background:rgba(255,224,138,0.35); border-color:rgba(255,224,138,0.7);">E</div>
+</div>
+
+<div id="titleScreen" class="overlay show">
+  <h1>꿈속의 과제</h1>
+  <p>임시 타이틀 화면 (도트 프로토타입)</p>
+  <div class="bigBtn" id="playBtn">PLAY</div>
+</div>
+
+<div id="storyScreen" class="overlay" style="justify-content:flex-end; align-items:stretch; padding:0; background: linear-gradient(180deg, #1b1533 0%, #2c1f4a 35%, #4a3868 65%, #6b4f6e 100%);">
+  <div id="storyBackBtn" style="position:absolute; top:14px; left:14px; width:38px; height:38px; border-radius:8px; background:rgba(255,255,255,0.15); border:2px solid rgba(255,255,255,0.4); display:flex; align-items:center; justify-content:center; cursor:pointer; font-size:18px;">←</div>
+  <div id="storySettingsBtn" style="position:absolute; top:14px; right:60px; width:38px; height:38px; border-radius:8px; background:rgba(255,255,255,0.15); border:2px solid rgba(255,255,255,0.4); display:flex; align-items:center; justify-content:center; cursor:pointer; font-size:18px;">⚙</div>
+  <div id="storySkipBtn" style="position:absolute; top:14px; right:14px; padding:0 10px; height:38px; border-radius:8px; background:rgba(255,255,255,0.15); border:2px solid rgba(255,255,255,0.4); display:flex; align-items:center; justify-content:center; cursor:pointer; font-size:12px; font-family:monospace;">SKIP ▶▶</div>
+  <div id="storyBox" style="margin:0 18px 22px; padding:16px 20px; background:rgba(15,10,30,0.82); border:2px solid rgba(255,224,138,0.4); border-radius:10px; cursor:pointer; min-height:70px;">
+    <div id="storyName" style="color:#ffe08a; font-weight:bold; margin-bottom:6px; font-size:14px;"></div>
+    <div id="storyText" style="font-size:14px; line-height:1.5;"></div>
+    <div style="text-align:right; font-size:10px; opacity:0.55; margin-top:8px;">SPACE / 클릭으로 계속 ▶</div>
+  </div>
+</div>
+
+<div id="settingsScreen" class="overlay">
+  <h1>설정</h1>
+  <p>화면 비율을 선택하세요</p>
+  <div class="row" id="resButtons"></div>
+  <p style="margin-top:18px;">음향 크기</p>
+  <input id="volumeSlider" type="range" min="0" max="100" value="80" style="width:200px;">
+  <div class="bigBtn" id="closeSettingsBtn">닫기</div>
+  <div id="settingsHint">PC: ESC로도 열고 닫을 수 있어요</div>
+</div>
+
+<div id="rotateBlock" class="overlay">
+  <div class="icon">📱↻</div>
+  <div>세로 모드에서는 플레이할 수 없어요.<br>화면을 가로로 돌려주세요.</div>
+</div>
+
+<div id="quizScreen" class="overlay">
+  <h1>과제를 풀자</h1>
+  <div id="quizDirLabel"></div>
+  <p id="quizProblem">3 + 5 = ?</p>
+  <input id="quizAnswer" type="text" inputmode="numeric">
+  <div class="bigBtn" id="quizSubmit">확인</div>
+  <div id="quizFeedback"></div>
+</div>
+
+<div id="clueScreen" class="overlay">
+  <h1>단서를 찾았다!</h1>
+  <p>어느 쪽이 더 많을까?</p>
+  <div style="display:flex; gap:16px; justify-content:center; margin: 8px 0;">
+    <div class="bigBtn" id="clueOptA"></div>
+    <div class="bigBtn" id="clueOptB"></div>
+  </div>
+  <div id="clueFeedback" style="min-height:18px; font-size:13px; color:#ff8fae;"></div>
+  <div id="clueResult" style="display:none; margin-top:10px; font-size:13px; opacity:0.8;">(임시) 단서: ???</div>
+</div>
+
+<div id="clueGameHint" style="display:none; position:absolute; top:9%; left:50%; transform:translateX(-50%);
+     background:rgba(6,45,38,0.75); color:#eafff5; padding:10px 18px; border-radius:10px;
+     font-family:monospace; text-align:center; z-index:15; border:2px solid rgba(255,255,255,0.3); max-width:80%;">
+  <div id="clueGameHintText" style="font-size:20px; letter-spacing:8px;">_ _ _ _</div>
+  <div id="clueGameHintSub" style="font-size:11px; opacity:0.85; margin-top:6px;">적의 공격을 피하면서 힌트를 모으자!</div>
+</div>
+
+<div id="clueAnswerScreen" class="overlay">
+  <h1>기억 속 단서</h1>
+  <p id="clueAnswerPrompt">방금 챙긴 단서를 떠올려 적어보자</p>
+  <input id="clueAnswerScreenInput" type="text">
+  <div class="bigBtn" id="clueAnswerScreenSubmit">확인</div>
+  <div id="clueAnswerScreenFeedback" style="min-height:18px; font-size:13px; color:#ff8fae;"></div>
+</div>
+
+<script>
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+ctx.imageSmoothingEnabled = false;
+const clearMsg = document.getElementById('clearMsg');
+const titleScreen = document.getElementById('titleScreen');
+const settingsScreen = document.getElementById('settingsScreen');
+const rotateBlock = document.getElementById('rotateBlock');
+const resButtonsEl = document.getElementById('resButtons');
+const settingsBtn = document.getElementById('settingsBtn');
+const quizScreen = document.getElementById('quizScreen');
+const quizProblemEl = document.getElementById('quizProblem');
+const quizAnswerEl = document.getElementById('quizAnswer');
+const quizFeedbackEl = document.getElementById('quizFeedback');
+const quizDirLabelEl = document.getElementById('quizDirLabel');
+const clueScreen = document.getElementById('clueScreen');
+const clueOptAEl = document.getElementById('clueOptA');
+const clueOptBEl = document.getElementById('clueOptB');
+const clueFeedbackEl = document.getElementById('clueFeedback');
+const clueResultEl = document.getElementById('clueResult');
+
+let gameState = 'title';
+let blockedByPortrait = false;
+let quizOpen = false;
+let clueOpen = false; // 임시: 히든방 단서 퀴즈 (양/수량 비교) 열림 여부
+let currentQuizDir = null;
+let currentCluePoint = null;
+let clueA = 0, clueB = 0;
+
+const RES_PRESETS = [
+  { ratio: 16 / 9, label: '16:9' },
+  { ratio: 4 / 3, label: '4:3' },
+  { ratio: 21 / 9, label: '21:9' },
+];
+let resIndex = 0;
+const BASE_H = 270;
+let GAME_W = Math.round(BASE_H * RES_PRESETS[resIndex].ratio);
+let GAME_H = BASE_H;
+const buf = document.createElement('canvas');
+const bctx = buf.getContext('2d');
+function applyResolution() {
+  GAME_W = Math.round(BASE_H * RES_PRESETS[resIndex].ratio);
+  GAME_H = BASE_H;
+  buf.width = GAME_W; buf.height = GAME_H;
+  bctx.imageSmoothingEnabled = false;
+}
+applyResolution();
+
+RES_PRESETS.forEach((p, i) => {
+  const b = document.createElement('div');
+  b.className = 'bigBtn' + (i === resIndex ? ' selected' : '');
+  b.textContent = p.label;
+  b.addEventListener('click', () => {
+    resIndex = i;
+    applyResolution();
+    [...resButtonsEl.children].forEach((c, ci) => c.classList.toggle('selected', ci === i));
+  });
+  resButtonsEl.appendChild(b);
+});
+
+function getViewport() {
+  const w = document.documentElement.clientWidth || window.innerWidth;
+  const h = document.documentElement.clientHeight || window.innerHeight;
+  return { w, h };
+}
+function checkOrientation() {
+  const { w, h } = getViewport();
+  blockedByPortrait = h > w * 1.02;
+  rotateBlock.classList.toggle('show', blockedByPortrait);
+}
+function resize() {
+  const { w, h } = getViewport();
+  canvas.width = w; canvas.height = h;
+  ctx.imageSmoothingEnabled = false;
+  checkOrientation();
+}
+window.addEventListener('resize', resize);
+
+const storyScreen = document.getElementById('storyScreen');
+const storyNameEl = document.getElementById('storyName');
+const storyTextEl = document.getElementById('storyText');
+
+document.getElementById('playBtn').addEventListener('click', () => {
+  titleScreen.classList.remove('show');
+  gameState = 'story';
+  storyIndex = 0;
+  showStoryLine();
+  storyScreen.classList.add('show');
+});
+
+// ---- 임시: 도입부 스토리 (과제하다 졸려서 잠들어 게임 세계로 들어옴) ----
+const STORY_LINES = [
+  { name: '', text: '오늘도 밤늦게까지 과제를 붙잡고 있었다.' },
+  { name: '', text: '눈이 자꾸 감긴다... 딱 5분만 눈 좀 붙이자...' },
+  { name: '???', text: '...음? 여긴 어디지?' },
+  { name: '???', text: '분명 방금까지 책상 앞이었는데...' },
+  { name: '???', text: '일단 이 이상한 곳을 벗어나야 할 것 같아. 과제도 마쳐야 하니까.' },
+  { name: '???', text: '어라... 몸이 이상하게 말을 안 듣네? 일단 아래쪽으로는 움직일 수 있는 것 같아.' },
+];
+let storyIndex = 0;
+function showStoryLine() {
+  const line = STORY_LINES[storyIndex];
+  storyNameEl.style.display = line.name ? 'block' : 'none';
+  storyNameEl.textContent = line.name;
+  storyTextEl.textContent = line.text;
+}
+function advanceStory() {
+  if (gameState !== 'story') return;
+  storyIndex++;
+  if (storyIndex >= STORY_LINES.length) {
+    storyScreen.classList.remove('show');
+    gameState = 'playing';
+    settingsBtn.classList.add('show');
+  } else {
+    showStoryLine();
+  }
+}
+document.getElementById('storyBox').addEventListener('click', advanceStory);
+document.getElementById('storySkipBtn').addEventListener('click', (e) => {
+  e.stopPropagation();
+  storyScreen.classList.remove('show');
+  gameState = 'playing';
+  settingsBtn.classList.add('show');
+});
+document.getElementById('storyBackBtn').addEventListener('click', () => {
+  storyScreen.classList.remove('show');
+  gameState = 'title';
+  titleScreen.classList.add('show');
+});
+document.getElementById('storySettingsBtn').addEventListener('click', toggleSettings);
+window.addEventListener('keydown', (e) => {
+  if (gameState === 'story' && e.key === ' ') { e.preventDefault(); advanceStory(); }
+});
+
+let stateBeforeSettings = null;
+function toggleSettings() {
+  if (gameState === 'settings') {
+    gameState = stateBeforeSettings || 'playing';
+    settingsScreen.classList.remove('show');
+    if (gameState === 'story') storyScreen.classList.add('show');
+  } else if (gameState === 'playing' || gameState === 'story') {
+    stateBeforeSettings = gameState;
+    if (gameState === 'story') storyScreen.classList.remove('show');
+    gameState = 'settings';
+    settingsScreen.classList.add('show');
+  }
+}
+settingsBtn.addEventListener('click', toggleSettings);
+document.getElementById('closeSettingsBtn').addEventListener('click', toggleSettings);
+
+// ---- 방(가로형) 공통 설정: 이제 좌우 벽은 항상 막혀있고, 위/아래 벽에 통로가 있음 ----
+const ROOM_WIDTH = 1600;
+const ROOM_HEIGHT = 250;
+const WALL_THICK = 14;
+const TOP_GAP_X = ROOM_WIDTH - 220;   // 위쪽 출구는 오른쪽에 (그림 참고)
+const BOTTOM_GAP_X = 220;             // 아래쪽 입구는 왼쪽에
+const GAP_HALF_X = 90; // 위/아래 벽에 뚫린 통로의 가로 폭
+const HIDDEN_GAP_X = ROOM_WIDTH / 2;  // 히든방1으로 이어지는 검은 통로 (일반 통로와 다른 위치)
+const MAIN_ROOM_COUNT = 3;
+const HIDDEN_ROOM_IDX = 3;  // rooms 배열의 4번째 칸: 첫 방(0) 아래쪽 히든방
+const HIDDEN_ROOM_IDX2 = 4; // rooms 배열의 5번째 칸: 2번째 방(1) 위쪽 히든방 (위/아래 양쪽에 히든방)
+const EXTRA_HIDDEN_SOURCE_ROOM = 1;    // 위쪽에 히든 통로가 추가로 뚫려있는 방
+const EXTRA_TOP_HIDDEN_GAP_X = 500;    // 그 방의 정상 출구(TOP_GAP_X)와 겹치지 않는 별도 위치
+const HIDDEN_GAP_X2 = ROOM_WIDTH / 2;  // 히든방2의 유일한 통로(아래쪽) 위치
+function isHiddenRoom(idx) { return idx === HIDDEN_ROOM_IDX; }
+function isHiddenRoom2(idx) { return idx === HIDDEN_ROOM_IDX2; }
+function isAnyHidden(idx) { return isHiddenRoom(idx) || isHiddenRoom2(idx); }
+const HIDDEN_INSET = 260; // 히든방은 양옆을 이만큼 좁혀서 보여줌 (문 위치 자체는 그대로 유지해 통로 연속성 유지)
+function roomBounds(idx) {
+  if (isAnyHidden(idx)) return { left: HIDDEN_INSET, right: ROOM_WIDTH - HIDDEN_INSET };
+  return { left: 0, right: ROOM_WIDTH };
+}
+
+const player = {
+  x: BOTTOM_GAP_X, y: WALL_THICK + 40, // 위쪽에서 시작해서 아래로 내려가며 탐험하게 함
+  w: 14, h: 18,
+  vx: 0, vy: 0,
+  maxSpeed: 5.5, // 발사 속도(MAX_LAUNCH)보다 커야 발사 직후 속도가 깎이지 않음
+  accel: 0.11,
+  friction: 0.93,
+  knockVX: 0, knockVY: 0,
+  stunTimer: 0,
+  lockedDirs: { up: true, down: false, left: true, right: true }, // 처음엔 아래로만 갈 수 있음 (진행하며 해금)
+};
+let quizUnlockKnown = false; // 튜토리얼 상자를 찾기 전까진 잠긴 방향키를 눌러도 문제가 안 나옴
+let cleared = false;
+let adminMode = false; // 비밀 코드로 활성화되는 관리자 모드(차징 없이 즉시 발사) - 절대 UI에 노출하지 않음
+
+// ---- 이동 방식: 방향키를 누르고 있으면 충전되고, 떼는 순간 그 방향으로 "발사"되어 미끄러짐 ----
+const MAX_CHARGE_FRAMES = 75; // 1.25초(60fps 기준)면 풀차징
+const MIN_LAUNCH = 0.3, MAX_LAUNCH = 5.5; // 아주 살짝 누르면 아주 조금만 나가도록 최소값을 낮춤
+let chargeStart = { up: null, down: null, left: null, right: null };
+
+// ---- 차징 효과음 (필터링된 화이트노이즈로 만든 "바람" 소리, 충전될수록 세지고 높아짐) ----
+let audioCtx = null;
+let noiseBuffer = null;
+let masterGain = null;
+let masterVolume = 0.8;
+const chargeSounds = {};
+function ensureAudio() {
+  if (!audioCtx) {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const len = audioCtx.sampleRate * 2;
+    noiseBuffer = audioCtx.createBuffer(1, len, audioCtx.sampleRate);
+    const data = noiseBuffer.getChannelData(0);
+    for (let i = 0; i < len; i++) data[i] = Math.random() * 2 - 1;
+    masterGain = audioCtx.createGain();
+    masterGain.gain.value = masterVolume;
+    masterGain.connect(audioCtx.destination);
+  }
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+}
+document.getElementById('volumeSlider').addEventListener('input', (e) => {
+  masterVolume = e.target.value / 100;
+  if (masterGain) masterGain.gain.value = masterVolume;
+});
+function startChargeSound(name) {
+  ensureAudio();
+  const now = audioCtx.currentTime;
+  // 바람(노이즈)만 - 충전 중엔 바람 소리만 남
+  const noiseSrc = audioCtx.createBufferSource();
+  noiseSrc.buffer = noiseBuffer;
+  noiseSrc.loop = true;
+  const noiseFilter = audioCtx.createBiquadFilter();
+  noiseFilter.type = 'bandpass';
+  noiseFilter.frequency.setValueAtTime(280, now);
+  noiseFilter.Q.setValueAtTime(0.8, now);
+  const noiseGain = audioCtx.createGain();
+  noiseGain.gain.setValueAtTime(0.0001, now);
+  noiseGain.gain.linearRampToValueAtTime(0.28, now + 0.06);
+  noiseSrc.connect(noiseFilter); noiseFilter.connect(noiseGain); noiseGain.connect(masterGain);
+  noiseSrc.start();
+  chargeSounds[name] = { noiseSrc, noiseFilter, noiseGain, maxStopped: false };
+}
+function updateChargeSound(name, frac) {
+  const s = chargeSounds[name];
+  if (!s || !audioCtx) return;
+  if (frac >= 1) {
+    if (!s.maxStopped) { s.maxStopped = true; stopChargeSoundNodes(s); } // 풀차징되면 바람 소리 정지
+    return;
+  }
+  const now = audioCtx.currentTime;
+  s.noiseFilter.frequency.setValueAtTime(280 + frac * 1400, now);
+  s.noiseFilter.Q.setValueAtTime(0.8 + frac * 1.5, now);
+  s.noiseGain.gain.setValueAtTime(0.24 + frac * 0.18, now);
+}
+function stopChargeSoundNodes(s) {
+  if (!audioCtx) return;
+  const now = audioCtx.currentTime;
+  s.noiseGain.gain.cancelScheduledValues(now);
+  s.noiseGain.gain.setValueAtTime(s.noiseGain.gain.value, now);
+  s.noiseGain.gain.linearRampToValueAtTime(0.0001, now + 0.08);
+  s.noiseSrc.stop(now + 0.1);
+}
+function stopChargeSound(name) {
+  const s = chargeSounds[name];
+  if (!s || !audioCtx) return;
+  if (!s.maxStopped) stopChargeSoundNodes(s);
+  delete chargeSounds[name];
+}
+// 발사되는 순간(=차징을 뗀 순간) 나는 사뿐한 "탁" 착지음
+function playReleaseThud() {
+  ensureAudio();
+  const now = audioCtx.currentTime;
+  const src = audioCtx.createBufferSource();
+  src.buffer = noiseBuffer;
+  const filter = audioCtx.createBiquadFilter();
+  filter.type = 'lowpass';
+  filter.frequency.setValueAtTime(700, now);
+  const gain = audioCtx.createGain();
+  gain.gain.setValueAtTime(0.22, now);
+  gain.gain.exponentialRampToValueAtTime(0.001, now + 0.09);
+  src.connect(filter); filter.connect(gain); gain.connect(masterGain);
+  src.start(now);
+  src.stop(now + 0.1);
+}
+function cancelAllCharges() {
+  ['up', 'down', 'left', 'right'].forEach(name => {
+    if (chargeStart[name] !== null) { chargeStart[name] = null; stopChargeSound(name); }
+  });
+}
+
+function launchDir(name, power) {
+  if (name === 'left') player.vx = -power;
+  if (name === 'right') player.vx = power;
+  if (name === 'up') player.vy = -power;
+  if (name === 'down') player.vy = power;
+}
+function tryPressDir(name) {
+  if (gameState === 'boxNotice' || gameState === 'clueGameEnter') return; // 연출 중엔 조작 불가
+  if (gameState === 'clueGame') {
+    if (name === 'up') clueGameLane = 0;
+    if (name === 'down') clueGameLane = 1;
+    return;
+  }
+  if (clueOpen) return; // 단서 퀴즈 푸는 중엔 이동 불가
+  if (player.lockedDirs[name]) {
+    if (quizUnlockKnown && !quizOpen) openQuiz(name); // 상자를 찾기 전엔 눌러도 아무 반응 없음
+    return;
+  }
+  if (adminMode) { launchDir(name, MAX_LAUNCH); playReleaseThud(); return; } // 충전 없이 즉시 최대 발사
+  if (chargeStart[name] === null) { chargeStart[name] = frameCount; startChargeSound(name); }
+}
+function releaseDir(name) {
+  if (chargeStart[name] === null) return;
+  const held = frameCount - chargeStart[name];
+  chargeStart[name] = null;
+  stopChargeSound(name);
+  playReleaseThud();
+  const frac = Math.min(1, held / MAX_CHARGE_FRAMES);
+  const eased = frac * frac; // 초반엔 천천히, 오래 누를수록 훨씬 세지도록
+  const power = MIN_LAUNCH + eased * (MAX_LAUNCH - MIN_LAUNCH);
+  launchDir(name, power);
+}
+const MOVE_KEYS = {
+  ArrowUp: 'up', w: 'up', W: 'up',
+  ArrowDown: 'down', s: 'down', S: 'down',
+  ArrowLeft: 'left', a: 'left', A: 'left',
+  ArrowRight: 'right', d: 'right', D: 'right',
+};
+window.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') { toggleSettings(); return; }
+  if ((e.key === 'e' || e.key === 'E') && gameState === 'playing') { tryInteract(); return; }
+  if (quizOpen || clueOpen) return;
+  const dir = MOVE_KEYS[e.key];
+  if (dir) tryPressDir(dir);
+});
+window.addEventListener('keyup', (e) => {
+  const dir = MOVE_KEYS[e.key];
+  if (dir) releaseDir(dir);
+});
+function bindDirHold(el, dirName) {
+  el.addEventListener('touchstart', (e) => { e.preventDefault(); tryPressDir(dirName); });
+  el.addEventListener('touchend', (e) => { e.preventDefault(); releaseDir(dirName); });
+  el.addEventListener('touchcancel', (e) => { e.preventDefault(); releaseDir(dirName); });
+  el.addEventListener('mousedown', () => tryPressDir(dirName));
+  el.addEventListener('mouseup', () => releaseDir(dirName));
+  el.addEventListener('mouseleave', () => releaseDir(dirName));
+}
+bindDirHold(document.getElementById('dUp'), 'up');
+bindDirHold(document.getElementById('dDown'), 'down');
+bindDirHold(document.getElementById('dLeft'), 'left');
+bindDirHold(document.getElementById('dRight'), 'right');
+document.getElementById('interactBtn').addEventListener('touchstart', (e) => { e.preventDefault(); tryInteract(); });
+document.getElementById('interactBtn').addEventListener('mousedown', () => tryInteract());
+
+// 잠긴 방향은 화살표 대신 자물쇠 아이콘을 보여줌
+const DIR_ARROW = { up: '▲', down: '▼', left: '◀', right: '▶' };
+const DIR_BTN_EL = { up: document.getElementById('dUp'), down: document.getElementById('dDown'), left: document.getElementById('dLeft'), right: document.getElementById('dRight') };
+function refreshDpadIcons() {
+  ['up', 'down', 'left', 'right'].forEach(d => {
+    const el = DIR_BTN_EL[d];
+    const locked = player.lockedDirs[d];
+    el.textContent = locked ? '🔒' : DIR_ARROW[d];
+    el.classList.toggle('locked', locked);
+  });
+}
+function playUnlockAnim(dir) {
+  const el = DIR_BTN_EL[dir];
+  el.classList.remove('unlockAnim');
+  void el.offsetWidth; // 강제 reflow로 애니메이션이 항상 다시 재생되게 함
+  el.classList.add('unlockAnim');
+  el.addEventListener('animationend', () => el.classList.remove('unlockAnim'), { once: true });
+}
+refreshDpadIcons();
+
+const DIR_LABEL = { up: '위쪽', down: '아래쪽', left: '왼쪽', right: '오른쪽' };
+let quizA = 0, quizB = 0;
+function generateQuizProblem() {
+  quizA = 1 + Math.floor(Math.random() * 9);
+  quizB = 1 + Math.floor(Math.random() * 9);
+  quizProblemEl.textContent = `${quizA} + ${quizB} = ?`;
+}
+function openQuiz(dir) {
+  currentQuizDir = dir;
+  quizOpen = true;
+  quizDirLabelEl.textContent = `[ ${DIR_LABEL[dir]} 이동 잠금 해제 ]`;
+  generateQuizProblem();
+  quizAnswerEl.value = '';
+  quizFeedbackEl.textContent = '';
+  quizScreen.classList.add('show');
+  setTimeout(() => quizAnswerEl.focus(), 50);
+}
+function closeQuizSuccess() {
+  quizOpen = false;
+  quizScreen.classList.remove('show');
+  if (currentQuizDir) {
+    player.lockedDirs[currentQuizDir] = false;
+    refreshDpadIcons();
+    playUnlockAnim(currentQuizDir);
+  }
+  currentQuizDir = null;
+}
+function submitQuiz() {
+  const raw = quizAnswerEl.value.trim();
+  if (raw === '318321') { // 비밀 코드: 관리자 모드 - 모든 방향 즉시 해제 + 충전 불필요
+    adminMode = true;
+    player.lockedDirs.up = false; player.lockedDirs.down = false;
+    player.lockedDirs.left = false; player.lockedDirs.right = false;
+    refreshDpadIcons();
+    quizOpen = false;
+    quizScreen.classList.remove('show');
+    currentQuizDir = null;
+    return;
+  }
+  const val = parseInt(raw, 10);
+  if (val === quizA + quizB) closeQuizSuccess();
+  else {
+    quizFeedbackEl.textContent = '틀렸어요, 다시 풀어보세요!';
+    generateQuizProblem();
+    quizAnswerEl.value = '';
+    quizAnswerEl.focus();
+  }
+}
+document.getElementById('quizSubmit').addEventListener('click', submitQuiz);
+quizAnswerEl.addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Enter') submitQuiz(); });
+
+// ---- 임시: 히든방 단서 퀴즈 (수량/양 비교) ----
+function generateClueQuiz() {
+  clueA = 2 + Math.floor(Math.random() * 7);
+  do { clueB = 2 + Math.floor(Math.random() * 7); } while (clueB === clueA);
+  clueOptAEl.textContent = '●'.repeat(clueA) + `  (${clueA})`;
+  clueOptBEl.textContent = '●'.repeat(clueB) + `  (${clueB})`;
+}
+function openClueQuiz(cp) {
+  currentCluePoint = cp;
+  clueOpen = true;
+  generateClueQuiz();
+  clueFeedbackEl.textContent = '';
+  clueResultEl.style.display = 'none';
+  clueScreen.classList.add('show');
+}
+function closeClueQuiz() {
+  clueOpen = false;
+  clueScreen.classList.remove('show');
+  currentCluePoint = null;
+}
+function answerClue(letter) {
+  const picked = letter === 'A' ? clueA : clueB;
+  const correct = Math.max(clueA, clueB);
+  if (picked === correct) {
+    clueFeedbackEl.textContent = '정답!';
+    clueResultEl.style.display = 'block';
+    if (currentCluePoint) currentCluePoint.solved = true;
+    setTimeout(closeClueQuiz, 1300);
+  } else {
+    clueFeedbackEl.textContent = '땡! 다시 골라봐';
+    generateClueQuiz();
+  }
+}
+clueOptAEl.addEventListener('click', () => answerClue('A'));
+clueOptBEl.addEventListener('click', () => answerClue('B'));
+
+// ---- 단서 미니게임: 단서방 (임시) ----
+// 자동으로 오른쪽으로 나아가는 느낌으로, 화면 고정 위치의 플레이어를 기준으로 적이 오른쪽에서 왼쪽으로 달려나옴
+// 위/아래 두 칸(레인) 중 하나로 옮겨다니며 피하고, 피할 때마다 정답 힌트 글자가 하나씩 공개됨
+const CLUE_GAME_ANSWER = '졸음신호'; // (임시 플레이스홀더 정답)
+const clueGameHintEl = document.getElementById('clueGameHint');
+const clueGameHintTextEl = document.getElementById('clueGameHintText');
+const clueGameHintSubEl = document.getElementById('clueGameHintSub');
+
+let clueGameLane = 0; // 0 = 위 칸, 1 = 아래 칸
+let clueGameVisualY = 0; // 실제 렌더링에 쓰는 매끄럽게 보간된 y 좌표
+let clueGameEnemies = [];
+let clueGameDodges = 0;
+let clueGameSpawnTimer = 0;
+let clueGameHitFlash = 0;
+let clueGameFinishing = false;
+let clueGameEnterTimer = 0;
+const CLUE_ENTER_DURATION = 26;
+let pendingClueStart = null;
+let nearbyInteractable = null;
+let pendingClue = null; // { cp, answer } - 단서방은 끝냈지만 아직 정답을 안 맞춘 상태
+
+// ---- 인벤토리 (임시: 단서 메모 아이템 보관, 열쇠는 사용하면 소모되는 구조만 미리 마련) ----
+const inventory = {};
+const inventoryBarEl = document.getElementById('inventoryBar');
+const interactPromptEl = document.getElementById('interactPrompt');
+const ITEM_ICON = { memo: '📝', key: '🔑' };
+function addItem(type) { inventory[type] = (inventory[type] || 0) + 1; updateInventoryUI(); }
+function useItem(type) {
+  if (!inventory[type]) return false;
+  inventory[type]--;
+  if (inventory[type] <= 0) delete inventory[type];
+  updateInventoryUI();
+  return true;
+}
+function updateInventoryUI() {
+  inventoryBarEl.innerHTML = '';
+  Object.keys(inventory).forEach(type => {
+    const badge = document.createElement('div');
+    badge.style.cssText = 'background:rgba(255,255,255,0.18); border:1px solid rgba(255,255,255,0.4); border-radius:6px; padding:3px 7px; font-size:13px; font-family:monospace;';
+    badge.textContent = `${ITEM_ICON[type] || '❔'} x${inventory[type]}`;
+    inventoryBarEl.appendChild(badge);
+  });
+}
+
+// ---- 튜토리얼 상자: 닿으면 자동으로 뜨는 짧은 멘트 ----
+const tutorialBoxPopupEl = document.getElementById('tutorialBoxPopup');
+function showTutorialBoxPopup() {
+  tutorialBoxPopupEl.style.display = 'block';
+  requestAnimationFrame(() => { tutorialBoxPopupEl.style.opacity = '1'; });
+  setTimeout(() => {
+    tutorialBoxPopupEl.style.opacity = '0';
+    setTimeout(() => { tutorialBoxPopupEl.style.display = 'none'; }, 350);
+  }, 2600);
+}
+
+// ---- 상자 발견 연출: 상자 쪽으로 확대됐다가 원래대로 돌아오면서 "저 상자는 뭐지?" 대사가 뜸 ----
+const boxNoticeTextEl = document.getElementById('boxNoticeText');
+const BOX_NOTICE_DURATION = 110; // 프레임 수 (약 1.8초)
+const BOX_NOTICE_MAX_ZOOM = 1.7;
+let boxNoticeTimer = 0;
+let boxNoticeTarget = null;
+function startBoxNotice(box) {
+  boxNoticeTarget = box;
+  boxNoticeTimer = 0;
+  gameState = 'boxNotice';
+  boxNoticeTextEl.style.display = 'block';
+  // 이동 중이던 충전/속도는 연출 동안 멈추게
+  cancelAllCharges();
+}
+function updateBoxNotice() {
+  boxNoticeTimer++;
+  if (boxNoticeTimer >= BOX_NOTICE_DURATION) {
+    boxNoticeTextEl.style.display = 'none';
+    boxNoticeTarget = null;
+    gameState = 'playing';
+  }
+}
+// 0→1→0으로 부드럽게 올라갔다 내려오는 곡선 (확대 후 다시 원래 화면으로)
+function boxNoticeZoomAmount() {
+  const t = boxNoticeTimer / BOX_NOTICE_DURATION;
+  return Math.sin(Math.PI * t);
+}
+
+// 상호작용 키(E) 또는 모바일 상호작용 버튼
+function tryInteract() {
+  if (gameState !== 'playing') return;
+  if (nearbyInteractable && !nearbyInteractable.solved) startClueGameEnter(nearbyInteractable);
+}
+function startClueGameEnter(cp) {
+  pendingClueStart = cp;
+  gameState = 'clueGameEnter';
+  clueGameEnterTimer = 0;
+}
+function startClueGame(cp) {
+  currentCluePoint = cp;
+  gameState = 'clueGame';
+  clueGameLane = 0;
+  clueGameVisualY = GAME_H * 0.5 + 90 * 0.28;
+  clueGameEnemies = [];
+  clueGameDodges = 0;
+  clueGameSpawnTimer = 60;
+  clueGameHitFlash = 0;
+  clueGameHintSubEl.textContent = '적의 공격을 피하면서 힌트를 모으자!';
+  updateClueGameHintDisplay();
+  clueGameHintEl.style.display = 'block';
+}
+function exitClueGame() {
+  gameState = 'playing';
+  clueGameHintEl.style.display = 'none';
+  currentCluePoint = null;
+}
+function finishClueGameCollect() {
+  if (currentCluePoint) {
+    pendingClue = { cp: currentCluePoint, answer: CLUE_GAME_ANSWER };
+    addItem('memo'); // 단서를 인벤토리에 메모 아이템으로 담아둠
+  }
+  exitClueGame();
+}
+function updateClueGameHintDisplay() {
+  let display = '';
+  for (let i = 0; i < CLUE_GAME_ANSWER.length; i++) display += (i < clueGameDodges) ? CLUE_GAME_ANSWER[i] : '_';
+  clueGameHintTextEl.textContent = display.split('').join(' ');
+  if (clueGameDodges >= CLUE_GAME_ANSWER.length && !clueGameFinishing) {
+    clueGameFinishing = true;
+    clueGameHintSubEl.textContent = '힌트를 다 모았다! 단서를 챙겨간다...';
+    setTimeout(() => { clueGameFinishing = false; finishClueGameCollect(); }, 900);
+  }
+}
+
+// ---- 단서 정답 입력: 단서방이 아니라 다음 방으로 넘어갈 때 ----
+const clueAnswerScreen = document.getElementById('clueAnswerScreen');
+const clueAnswerScreenInput = document.getElementById('clueAnswerScreenInput');
+const clueAnswerScreenFeedback = document.getElementById('clueAnswerScreenFeedback');
+function openClueAnswerScreen() {
+  quizOpen = true; // 기존 일시정지/이동잠금 로직을 그대로 재사용
+  clueAnswerScreenInput.value = '';
+  clueAnswerScreenFeedback.textContent = '';
+  clueAnswerScreen.classList.add('show');
+  setTimeout(() => clueAnswerScreenInput.focus(), 50);
+}
+function submitClueAnswerScreen() {
+  const val = clueAnswerScreenInput.value.trim();
+  if (pendingClue && val === pendingClue.answer) {
+    if (pendingClue.cp) pendingClue.cp.solved = true;
+    useItem('memo');
+    pendingClue = null;
+    quizOpen = false;
+    clueAnswerScreen.classList.remove('show');
+  } else {
+    clueAnswerScreenFeedback.textContent = '틀렸어... 다시 떠올려보자';
+  }
+}
+document.getElementById('clueAnswerScreenSubmit').addEventListener('click', submitClueAnswerScreen);
+clueAnswerScreenInput.addEventListener('keydown', (e) => {
+  e.stopPropagation();
+  if (e.key === 'Enter') submitClueAnswerScreen();
+});
+
+const CLUE_PLAYER_X_FRAC = 0.22; // 화면상 플레이어의 고정 x 위치(비율)
+function updateClueGame() {
+  clueGameSpawnTimer--;
+  if (clueGameSpawnTimer <= 0) {
+    clueGameSpawnTimer = 55 + Math.floor(Math.random() * 25);
+    clueGameEnemies.push({ x: GAME_W + 20, lane: Math.random() < 0.5 ? 0 : 1, passed: false });
+  }
+  const speed = 2.4;
+  const px_ = GAME_W * CLUE_PLAYER_X_FRAC;
+  for (let i = clueGameEnemies.length - 1; i >= 0; i--) {
+    const en = clueGameEnemies[i];
+    en.x -= speed;
+    if (!en.passed && Math.abs(en.x - px_) < 14) {
+      en.passed = true;
+      if (en.lane === clueGameLane) {
+        clueGameHitFlash = 14; // 맞음: 임시로 페널티는 없고 화면만 살짝 반응
+      } else {
+        clueGameDodges++;
+        updateClueGameHintDisplay();
+      }
+    }
+    if (en.x < -20) clueGameEnemies.splice(i, 1);
+  }
+  if (clueGameHitFlash > 0) clueGameHitFlash--;
+  // 레인 전환을 매끄럽게 보간 (딱 끊기지 않고 부드럽게 이동)
+  const bandY_ = GAME_H * 0.5, bandH_ = 90;
+  const targetY = bandY_ + (clueGameLane === 0 ? bandH_ * 0.28 : bandH_ * 0.72);
+  clueGameVisualY += (targetY - clueGameVisualY) * 0.28;
+}
+function drawClueGame() {
+  bctx.fillStyle = '#bdf5e0';
+  bctx.fillRect(0, 0, GAME_W, GAME_H);
+  const bandY = GAME_H * 0.5, bandH = 90;
+  bctx.fillStyle = '#8fe3c4';
+  bctx.fillRect(0, bandY, GAME_W, bandH);
+  bctx.fillStyle = 'rgba(255,255,255,0.45)';
+  bctx.fillRect(0, bandY + bandH / 2 - 1, GAME_W, 2);
+  const laneTopY = bandY + bandH * 0.28, laneBotY = bandY + bandH * 0.72;
+
+  const px_ = GAME_W * CLUE_PLAYER_X_FRAC;
+  const py_ = clueGameVisualY;
+  const bodyColor = clueGameHitFlash > 0 ? '#ff5c5c' : '#ffffff';
+  px(px_ - 8, py_ - 9, 16, 18, bodyColor);
+  px(px_ - 5, py_ - 6, 3, 3, '#4a7fd6');
+  px(px_ + 2, py_ - 6, 3, 3, '#4a7fd6');
+
+  clueGameEnemies.forEach(en => {
+    const ey = en.lane === 0 ? laneTopY : laneBotY;
+    px(en.x - 8, ey - 8, 16, 16, '#e05a6b');
+    px(en.x - 4, ey - 3, 3, 3, '#ffffff');
+    px(en.x + 1, ey - 3, 3, 3, '#ffffff');
+  });
+}
+
+// ---- 맵 3개: 위/아래 벽에 뚫린 통로로 서로 이어짐 (맵1 출구=위쪽, 맵2 입구=아래쪽 방식) ----
+// 마지막 방(idx === MAIN_ROOM_COUNT-1)은 위쪽 문이 없고, 대신 오른쪽 벽 위쪽에 최종 출구가 있음
+function topOpen(idx) { return !isHiddenRoom2(idx) && idx !== MAIN_ROOM_COUNT - 1; }
+function bottomOpen(idx) { return !isHiddenRoom(idx); }  // 히든방1만 아래쪽 문이 없음(유일한 문이 위쪽)
+
+const RIGHT_EXIT_Y_CENTER = WALL_THICK + 55; // 최종 출구: 오른쪽 벽면 윗부분
+const RIGHT_EXIT_HALF_Y = 42;
+
+function topGapX(idx) { return isHiddenRoom(idx) ? HIDDEN_GAP_X : TOP_GAP_X; }
+function bottomGapX(idx) {
+  if (idx === 0) return HIDDEN_GAP_X;
+  if (isHiddenRoom2(idx)) return HIDDEN_GAP_X2;
+  return BOTTOM_GAP_X;
+}
+function topDoorColor(idx) { return isHiddenRoom(idx) ? 'black' : 'pink'; }
+function bottomDoorColor(idx) { return (idx === 0 || isHiddenRoom2(idx)) ? 'black' : 'pink'; }
+
+// 위/아래 벽 통과 시 어느 방으로 이어지는지 계산 (실시간 프리뷰 렌더링과 실제 전환 양쪽에서 재사용)
+function resolveTopCrossing(hw) {
+  const px_ = player.x;
+  if (isHiddenRoom(roomIndex)) {
+    if (Math.abs(px_ - topGapX(roomIndex)) < (GAP_HALF_X - hw)) return { matched: true, destIdx: 0 };
+    return { matched: false };
+  }
+  if (roomIndex === EXTRA_HIDDEN_SOURCE_ROOM) {
+    if (Math.abs(px_ - EXTRA_TOP_HIDDEN_GAP_X) < (GAP_HALF_X - hw)) return { matched: true, destIdx: HIDDEN_ROOM_IDX2 };
+    if (topOpen(roomIndex) && Math.abs(px_ - TOP_GAP_X) < (GAP_HALF_X - hw)) return { matched: true, destIdx: roomIndex + 1 };
+    return { matched: false };
+  }
+  if (topOpen(roomIndex) && Math.abs(px_ - topGapX(roomIndex)) < (GAP_HALF_X - hw)) {
+    return { matched: true, destIdx: roomIndex + 1 };
+  }
+  return { matched: false };
+}
+function resolveBottomCrossing(hw) {
+  if (!bottomOpen(roomIndex)) return { matched: false };
+  if (Math.abs(player.x - bottomGapX(roomIndex)) >= (GAP_HALF_X - hw)) return { matched: false };
+  if (roomIndex === 0) return { matched: true, destIdx: HIDDEN_ROOM_IDX };
+  if (isHiddenRoom2(roomIndex)) return { matched: true, destIdx: EXTRA_HIDDEN_SOURCE_ROOM, entryXOverride: EXTRA_TOP_HIDDEN_GAP_X };
+  return { matched: true, destIdx: roomIndex - 1 };
+}
+
+function buildRoomHazards(topGapXOverride, bottomGapXOverride, extraTopGapX, empty, roomIdxParam) {
+  const list = [];
+  if (empty) return list; // 히든방: 아무것도 없이 비워둠
+  const tGap = topGapXOverride !== undefined ? topGapXOverride : TOP_GAP_X;
+  const bGap = bottomGapXOverride !== undefined ? bottomGapXOverride : BOTTOM_GAP_X;
+
+  // 이동하는 적 - 간격을 좁혀서 연쇄 충돌(콤보)이 잘 이어지게 함
+  const ENEMY_GAP = roomIdxParam === 0 ? 80 : 55; // 맵1(첫 방)은 적 스폰 간격을 넓혀서 밀도를 줄임
+  let ex0 = 220, ei = 0;
+  while (ex0 < ROOM_WIDTH - 220) {
+    list.push({
+      baseX: ex0 + ((ei % 2 === 0) ? 10 : -10),
+      amp: 18 + (ei % 3) * 8,
+      y: WALL_THICK + 40 + ((ei * 37) % (ROOM_HEIGHT - WALL_THICK * 2 - 80)),
+      speed: 0.4 + (ei % 3) * 0.15,
+      phase: (ei * Math.PI) / 4,
+      r: 16, hitCD: 0,
+      type: (ei % 3 === 2) ? 'thrower' : 'enemy',
+      throwCD: 60 + (ei % 5) * 12,
+    });
+    ex0 += ENEMY_GAP;
+    ei++;
+  }
+
+  // 벽에 붙은 장애물: 문(통로) 부분만 빼고 벽 처음부터 끝까지 이어지는 납작한 띠 형태
+  // 단, 맨 앞의 2개는 빼서 시작하자마자 연쇄 충돌에 걸리지 않게 함
+  const wallSegW = 30, wallHazardH = 10;
+  const DOOR_CLEAR = GAP_HALF_X + 10;
+  let topSegIdx = 0, botSegIdx = 0;
+  for (let x = WALL_THICK + wallSegW / 2; x < ROOM_WIDTH - WALL_THICK - wallSegW / 2; x += wallSegW) {
+    const nearExtra = extraTopGapX !== undefined && Math.abs(x - extraTopGapX) <= DOOR_CLEAR;
+    if (!nearExtra && (tGap === null || Math.abs(x - tGap) > DOOR_CLEAR)) {
+      if (topSegIdx >= 2) list.push({ baseX: x, amp: 0, y: WALL_THICK + wallHazardH / 2, speed: 0, phase: 0, r: 10, hitCD: 0, type: 'wall', wallW: wallSegW, wallH: wallHazardH });
+      topSegIdx++;
+    }
+    if (bGap === null || Math.abs(x - bGap) > DOOR_CLEAR) {
+      if (botSegIdx >= 2) list.push({ baseX: x, amp: 0, y: ROOM_HEIGHT - WALL_THICK - wallHazardH / 2, speed: 0, phase: 0, r: 10, hitCD: 0, type: 'wall', wallW: wallSegW, wallH: wallHazardH });
+      botSegIdx++;
+    }
+  }
+
+  // 바닥을 뛰어다니는(점프하며 양옆으로도 이동하는) 적 - 두 번째 방부터만 등장, 문/통로 부근은 피해서 배치
+  if (roomIdxParam !== undefined && roomIdxParam >= 1) {
+    const hopperXs = [ROOM_WIDTH * 0.3, ROOM_WIDTH * 0.62, ROOM_WIDTH * 0.85];
+    hopperXs.forEach((x, hi) => {
+      const nearExtra = extraTopGapX !== undefined && Math.abs(x - extraTopGapX) <= DOOR_CLEAR;
+      const nearTop = !nearExtra && tGap !== null && Math.abs(x - tGap) <= DOOR_CLEAR;
+      const nearBottom = bGap !== null && Math.abs(x - bGap) <= DOOR_CLEAR;
+      if (nearTop || nearBottom) return; // 입출구 자리는 피함
+      list.push({
+        baseX: x, amp: 26 + (hi % 2) * 10,
+        sideAmp: 45 + (hi % 3) * 15, sidePhase: (hi * Math.PI) / 2.3,
+        y: ROOM_HEIGHT - WALL_THICK - 26,
+        speed: 0.5 + (hi % 3) * 0.1,
+        phase: (hi * Math.PI) / 3,
+        r: 14, hitCD: 0, type: 'hopper',
+      });
+    });
+  }
+
+  // 맵 가운데: 맞으면 튕겨나가는 오브젝트 하나 + 그냥 벽처럼 막기만 하는(피격 없는) 오브젝트 여러 개를 일정한 간격으로
+  list.push({ baseX: ROOM_WIDTH * 0.55, amp: 0, y: ROOM_HEIGHT / 2 - 20, speed: 0, phase: 0, r: 13, hitCD: 0, type: 'centerHazard' });
+  for (let f = 0.22; f <= 0.82; f += 0.15) {
+    list.push({ baseX: ROOM_WIDTH * f, amp: 0, y: ROOM_HEIGHT / 2 + 22, speed: 0, phase: 0, r: 12, hitCD: 0, type: 'centerBlock' });
+  }
+
+  return list;
+}
+const rooms = [
+  buildRoomHazards(undefined, HIDDEN_GAP_X, undefined, false, 0), // 방0: 위쪽은 기본 출구(방1로), 아래쪽은 히든통로
+  buildRoomHazards(undefined, undefined, EXTRA_TOP_HIDDEN_GAP_X, false, 1), // 방1: 기본 출구 + 별도 히든 통로
+  buildRoomHazards(null, undefined, undefined, false, 2), // 방2(마지막): 위쪽 문이 없어짐(오른쪽 벽으로 이동) - 제외 영역 불필요
+  buildRoomHazards(HIDDEN_GAP_X, null, undefined, true),   // 히든방1: 비어있음
+  buildRoomHazards(null, HIDDEN_GAP_X2, undefined, true),  // 히든방2: 비어있음
+];
+// 임시: 히든방에 단서(수량 비교 퀴즈) 오브젝트 하나씩 배치 - 공격 판정 없이 가까이 가면 열림
+rooms[HIDDEN_ROOM_IDX].push({ baseX: (roomBounds(HIDDEN_ROOM_IDX).left + roomBounds(HIDDEN_ROOM_IDX).right) / 2, amp: 0, y: ROOM_HEIGHT - WALL_THICK - 26, speed: 0, phase: 0, r: 14, hitCD: 0, type: 'cluePoint', solved: false });
+rooms[HIDDEN_ROOM_IDX2].push({ baseX: (roomBounds(HIDDEN_ROOM_IDX2).left + roomBounds(HIDDEN_ROOM_IDX2).right) / 2, amp: 0, y: WALL_THICK + 40, speed: 0, phase: 0, r: 14, hitCD: 0, type: 'cluePoint', solved: false });
+// 튜토리얼 상자: 처음 시작 지점에서 아래로 내려가면 만나는 상자 - 상호작용 키 없이 닿기만 해도 열림
+rooms[0].push({ baseX: WALL_THICK + 40, amp: 0, y: ROOM_HEIGHT - WALL_THICK - 30, speed: 0, phase: 0, r: 13, hitCD: 0, type: 'tutorialBox', solved: false, noticed: false });
+let roomIndex = 0;
+let enemies = rooms[roomIndex];
+let projectiles = [];
+
+let frameCount = 0;
+const KNOCK_DOWN = 9, KNOCK_SIDE_MAX = 4, KNOCK_CHAIN_EXTRA = 5, KNOCK_FRICTION = 0.88;
+const STUN_DURATION = 30, ENEMY_HIT_CD = 18;
+const PROJ_R = 6; // 거리에 비례해 아치 높이/체공 시간을 계산해서 물풍선을 던지듯 포물선을 그림
+
+// ---- 방 전환 슬라이드 트랜지션 ----
+let camLocked = false, camLockX = 0, camLockEntryY = 0;
+const CAM_UNLOCK_DIST = 34; // 입구에서 이 정도 벗어나야 실제로 "들어간" 것으로 보고 카메라가 따라오기 시작함
+const CROSS_MARGIN = 50; // 문을 완전히 넘어갔다고 확정하기까지 더 이동해야 하는 거리 (그동안 실시간으로 다음 방이 미리보기됨)
+
+function applyHitToPlayer(srcX, srcY, srcR) {
+  const dx = player.x - srcX, dy = player.y - srcY;
+  const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+  const minDist = player.w * 0.5 + srcR;
+  if (dist >= minDist) return false;
+  cancelAllCharges(); // 공격에 맞으면 충전 중이던 것도 풀림
+  const overlap = minDist - dist;
+  const alreadyBouncing = Math.hypot(player.knockVX, player.knockVY) > 2;
+  if (alreadyBouncing) {
+    const mag = Math.hypot(player.knockVX, player.knockVY) || 1;
+    const ux = player.knockVX / mag, uy = player.knockVY / mag;
+    player.knockVX += ux * KNOCK_CHAIN_EXTRA;
+    player.knockVY += uy * KNOCK_CHAIN_EXTRA;
+    player.x += ux * overlap; player.y += uy * overlap;
+  } else {
+    const sideSign = -1; // 오른쪽으로 가지 않고 항상 왼쪽으로 튕기게
+    const sideLean = Math.min(1, Math.abs(dx) / minDist);
+    player.knockVX = sideSign * sideLean * KNOCK_SIDE_MAX;
+    player.knockVY = KNOCK_DOWN;
+    player.y += overlap;
+  }
+  player.stunTimer = STUN_DURATION;
+  return true;
+}
+
+// 벽에 붙은 장애물("wall"/"spike")은 항상 붙어있는 벽에서 멀어지는 방향(수직)으로만 튕겨나감
+// 벽에 붙은 장애물: 기존(applyHitToPlayer)과 같은 튕김/콤보 방식을 쓰되,
+// 세로 방향은 왠만하면 그 벽 쪽으로 붙게 만들어서(벽에서 멀어지지 않게) 옆으로 쭉 이어서 연쇄 충돌이 잘 되게 함
+function applyWallHitToPlayer(en) {
+  const dx = player.x - en.x, dy = player.y - en.y;
+  const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+  const minDist = player.w * 0.5 + en.r;
+  if (dist >= minDist) return false;
+  cancelAllCharges();
+  const overlap = minDist - dist;
+  const towardWall = en.y < ROOM_HEIGHT / 2 ? -1 : 1; // 위쪽 벽이면 위로(벽 쪽), 아래쪽 벽이면 아래로(벽 쪽)
+  const alreadyBouncing = Math.hypot(player.knockVX, player.knockVY) > 2;
+  if (alreadyBouncing) {
+    const mag = Math.hypot(player.knockVX, player.knockVY) || 1;
+    const ux = player.knockVX / mag, uy = player.knockVY / mag;
+    player.knockVX += ux * KNOCK_CHAIN_EXTRA;
+    player.knockVY += uy * KNOCK_CHAIN_EXTRA;
+    player.x += ux * overlap; player.y += uy * overlap;
+  } else {
+    player.knockVX = -KNOCK_SIDE_MAX; // 왼쪽으로
+    player.knockVY = towardWall * KNOCK_DOWN * 0.5; // 벽 쪽으로 붙듯이(벽 충돌 판정이 곧바로 다시 벽 근처로 되돌림)
+    player.x += -overlap;
+    player.y += towardWall * overlap * 0.5;
+  }
+  player.stunTimer = STUN_DURATION;
+  return true;
+}
+
+function currentCamX() {
+  if (camLocked) return camLockX;
+  const rb = roomBounds(roomIndex);
+  const w = rb.right - rb.left;
+  let camX = player.x - GAME_W / 2;
+  camX = Math.max(rb.left, Math.min(rb.left + w - GAME_W, camX));
+  if (w < GAME_W) camX = rb.left - (GAME_W - w) / 2;
+  return camX;
+}
+
+// 방을 실제로 넘어갈 때: 캐릭터의 이동을 끊지 않고 좌표만 이어붙여서(연속적으로) 다음 방으로 전환
+// direction: 'up' = 위로 계속 이동하던 중(새 방의 아래쪽에서 이어짐), 'down' = 아래로 계속 이동하던 중(새 방의 위쪽에서 이어짐)
+function crossingEntryX(destIdx, direction, entryXOverride) {
+  if (direction === 'up') return (entryXOverride !== undefined) ? entryXOverride : bottomGapX(destIdx);
+  return (entryXOverride !== undefined) ? entryXOverride : topGapX(destIdx);
+}
+
+function crossRoom(newIndex, direction, entryXOverride) {
+  roomIndex = newIndex;
+  enemies = rooms[roomIndex];
+  projectiles = [];
+  if (direction === 'up') {
+    player.y += ROOM_HEIGHT;
+    player.x = (entryXOverride !== undefined) ? entryXOverride : bottomGapX(newIndex);
+  } else {
+    player.y -= ROOM_HEIGHT;
+    player.x = (entryXOverride !== undefined) ? entryXOverride : topGapX(newIndex);
+  }
+  // 히든방에 들어갈 때만: 실제로 안쪽으로 들어가기 전까진 카메라가 입구에 고정됨
+  if (isAnyHidden(newIndex)) {
+    camLocked = false;
+    camLockX = currentCamX();
+    camLocked = true;
+    camLockEntryY = player.y;
+  } else {
+    camLocked = false;
+  }
+  // 단서를 챙긴 채로 (히든방이 아닌) 다음 방 입구에 들어서면, 그 자리에서 정답을 적어야 함
+  if (pendingClue && !isAnyHidden(newIndex)) openClueAnswerScreen();
+}
+
+function update() {
+  if (blockedByPortrait) return;
+  if (gameState === 'clueGame') { updateClueGame(); return; }
+  if (gameState === 'boxNotice') { updateBoxNotice(); return; }
+  if (gameState === 'clueGameEnter') {
+    clueGameEnterTimer++;
+    if (clueGameEnterTimer >= CLUE_ENTER_DURATION) { startClueGame(pendingClueStart); pendingClueStart = null; }
+    return;
+  }
+  if (gameState !== 'playing') return;
+  frameCount++;
+  if (cleared) return;
+
+  nearbyInteractable = null; // 매 프레임 다시 판정 (멀어지면 자동으로 꺼짐)
+  if (camLocked && Math.abs(player.y - camLockEntryY) > CAM_UNLOCK_DIST) camLocked = false;
+
+  ['up', 'down', 'left', 'right'].forEach(name => {
+    if (chargeStart[name] !== null) {
+      const frac = Math.min(1, (frameCount - chargeStart[name]) / MAX_CHARGE_FRAMES);
+      updateChargeSound(name, frac);
+    }
+  });
+
+  // 발사된 후에는 계속 미끄러지다가 마찰로 서서히 멈춤 (충전/발사는 releaseDir에서 처리)
+  player.vx *= player.friction;
+  player.vy *= player.friction;
+  player.vx = Math.max(-player.maxSpeed, Math.min(player.maxSpeed, player.vx));
+  player.vy = Math.max(-player.maxSpeed, Math.min(player.maxSpeed, player.vy));
+  if (Math.abs(player.vx) < 0.02) player.vx = 0;
+  if (Math.abs(player.vy) < 0.02) player.vy = 0;
+
+  player.x += player.vx;
+  player.y += player.vy;
+
+  player.x += player.knockVX;
+  player.y += player.knockVY;
+  player.knockVX *= KNOCK_FRICTION;
+  player.knockVY *= KNOCK_FRICTION;
+  if (Math.abs(player.knockVX) < 0.05) player.knockVX = 0;
+  if (Math.abs(player.knockVY) < 0.05) player.knockVY = 0;
+
+  const hw = player.w / 2, hh = player.h / 2;
+
+  // 좌우 벽은 항상 막힘 (단, 마지막 방은 오른쪽 위쪽에 최종 출구가 있음; 히든방은 폭이 더 좁음)
+  const rb = roomBounds(roomIndex);
+  if (player.x - hw < rb.left + WALL_THICK) { player.x = rb.left + WALL_THICK + hw; player.knockVX = 0; player.vx = 0; }
+  if (player.x + hw > rb.right - WALL_THICK) {
+    const isFinalRoom = roomIndex === MAIN_ROOM_COUNT - 1;
+    const inRightGap = isFinalRoom && Math.abs(player.y - RIGHT_EXIT_Y_CENTER) < (RIGHT_EXIT_HALF_Y - hh);
+    if (inRightGap) {
+      if ((player.x + hw) - (rb.right - WALL_THICK) >= CROSS_MARGIN) { cleared = true; clearMsg.style.display = 'block'; }
+    } else {
+      player.x = rb.right - WALL_THICK - hw; player.knockVX = 0; player.vx = 0;
+    }
+  }
+
+  // 위/아래 벽: 통로(구멍) 부분은 실제 넘어갈 때까지 자유롭게 이동 가능(캐릭터를 따라 카메라가 계속 움직임),
+  // CROSS_MARGIN만큼 완전히 넘어가면 그때 다음/이전 방(혹은 히든방)으로 좌표를 이어붙여 전환
+  // (화면이 이미 검은색으로 완전히 덮인 시점과 정확히 일치하므로, 위치 보정은 crossRoom 안에서만 일어나면 충분함)
+  if (!cleared && player.y - hh < WALL_THICK) {
+    const topInfo = resolveTopCrossing(hw);
+    if (topInfo.matched) {
+      const bleed = WALL_THICK - (player.y - hh);
+      if (bleed >= CROSS_MARGIN) crossRoom(topInfo.destIdx, 'up', topInfo.entryXOverride);
+    } else {
+      player.y = WALL_THICK + hh; player.knockVY = 0; player.vy = 0;
+    }
+  }
+  if (!cleared && player.y + hh > ROOM_HEIGHT - WALL_THICK) {
+    const botInfo = resolveBottomCrossing(hw);
+    if (botInfo.matched) {
+      const bleed = (player.y + hh) - (ROOM_HEIGHT - WALL_THICK);
+      if (bleed >= CROSS_MARGIN) crossRoom(botInfo.destIdx, 'down', botInfo.entryXOverride);
+    } else {
+      player.y = ROOM_HEIGHT - WALL_THICK - hh; player.knockVY = 0; player.vy = 0;
+    }
+  }
+
+  if (player.stunTimer > 0) player.stunTimer--;
+  if (cleared) return;
+
+  enemies.forEach(en => {
+    if (!quizOpen) {
+      if (en.type === 'enemy' || en.type === 'thrower') {
+        en.x = en.baseX + Math.sin(frameCount * en.speed * 0.02 + en.phase) * en.amp;
+      } else if (en.type === 'hopper') {
+        // 양옆으로도 움직이면서 통통 튀듯 위아래로 점프 (항상 양수 값이 되게 해서 반복적으로 튀어오름)
+        en.x = en.baseX + Math.sin(frameCount * en.speed * 0.015 + en.sidePhase) * en.sideAmp;
+        en.y = (ROOM_HEIGHT - WALL_THICK - 26) - Math.abs(Math.sin(frameCount * en.speed * 0.05 + en.phase)) * en.amp;
+      } else {
+        en.x = en.baseX;
+      }
+      if (en.hitCD > 0) en.hitCD--;
+    }
+
+    if (en.type === 'centerBlock') {
+      // 일반 벽처럼 물리적으로 막기만 함 - 피격/스턴/충전취소 없음
+      const dx0 = player.x - en.x, dy0 = player.y - en.y;
+      const dist0 = Math.sqrt(dx0 * dx0 + dy0 * dy0) || 1;
+      const minDist0 = player.w * 0.5 + en.r;
+      if (dist0 < minDist0) {
+        const overlap0 = minDist0 - dist0;
+        const ux0 = dx0 / dist0, uy0 = dy0 / dist0;
+        player.x += ux0 * overlap0; player.y += uy0 * overlap0;
+      }
+      return;
+    }
+
+    if (en.type === 'cluePoint') {
+      // 공격 판정 없음 - 가까이 가면 상호작용 가능 표시만 하고, E키(또는 상호작용 버튼)로 직접 시작함
+      if (!en.solved) {
+        const dxp = player.x - en.x, dyp = player.y - en.y;
+        if (Math.sqrt(dxp * dxp + dyp * dyp) < en.r + player.w * 0.5 + 14) nearbyInteractable = en;
+      }
+      return;
+    }
+
+    if (en.type === 'tutorialBox') {
+      // 1단계: 멀리서 처음 발견하면 화면이 상자 쪽으로 확대됐다가 돌아오며 대사가 뜸
+      // 2단계: 상호작용 키 없이 닿기만 하면 자동으로 열려서 해금됨
+      if (!en.solved) {
+        const dxp = player.x - en.x, dyp = player.y - en.y;
+        const dist = Math.sqrt(dxp * dxp + dyp * dyp);
+        if (!en.noticed && dist < 80) {
+          en.noticed = true;
+          startBoxNotice(en);
+        }
+        if (dist < en.r + player.w * 0.5 + 6) {
+          en.solved = true;
+          quizUnlockKnown = true;
+          showTutorialBoxPopup();
+        }
+      }
+      return;
+    }
+
+    const dx = player.x - en.x, dy = player.y - en.y;
+    const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+    const minDist = (player.w * 0.5) + en.r;
+    if (dist < minDist && en.hitCD <= 0) {
+      const alreadyBouncing = Math.hypot(player.knockVX, player.knockVY) > 2;
+      if (!quizOpen || alreadyBouncing) {
+        en.hitCD = ENEMY_HIT_CD;
+        if (en.type === 'wall') applyWallHitToPlayer(en); // 벽 장애물: 벽 쪽으로 붙으며 튕김
+        else applyHitToPlayer(en.x, en.y, en.r);
+      }
+    }
+    if (en.type === 'thrower' && !quizOpen) {
+      en.throwCD--;
+      if (en.throwCD <= 0) {
+        en.throwCD = 90 + Math.random() * 60;
+        const sx = en.x, sy = en.y;
+        // 플레이어를 조준하지 않고, 스스로를 기준으로 랜덤한 방향으로 던짐 - 목표 지점을 항상 벽까지 닿게 계산
+        const throwAngle = Math.random() * Math.PI * 2;
+        const dcos = Math.cos(throwAngle), dsin = Math.sin(throwAngle);
+        // 그 방향으로 쭉 나아갔을 때 방의 벽(안쪽 경계선)에 닿는 지점을 계산
+        let tMax = Infinity;
+        if (dcos > 0.0001) tMax = Math.min(tMax, (ROOM_WIDTH - WALL_THICK - sx) / dcos);
+        else if (dcos < -0.0001) tMax = Math.min(tMax, (WALL_THICK - sx) / dcos);
+        if (dsin > 0.0001) tMax = Math.min(tMax, (ROOM_HEIGHT - WALL_THICK - sy) / dsin);
+        else if (dsin < -0.0001) tMax = Math.min(tMax, (WALL_THICK - sy) / dsin);
+        if (!isFinite(tMax) || tMax <= 0) tMax = 200;
+        const ex = sx + dcos * tMax, ey = sy + dsin * tMax;
+        const throwDist = tMax;
+        // 물풍선 던지듯: 거리가 멀수록 더 높이 뜨고 더 오래 날아감 (탄속을 확 낮춤)
+        const arcHeight = Math.max(45, Math.min(140, throwDist * 0.55));
+        const duration = Math.max(90, Math.min(260, throwDist / 0.9));
+        projectiles.push({
+          startX: sx, startY: sy, endX: ex, endY: ey,
+          ctrlX: (sx + ex) / 2, ctrlY: (sy + ey) / 2 - arcHeight,
+          x: sx, y: sy, t: 0, duration, r: PROJ_R,
+        });
+      }
+    }
+  });
+
+  for (let i = projectiles.length - 1; i >= 0; i--) {
+    const p = projectiles[i];
+    if (!quizOpen) {
+      p.t = Math.min(1, p.t + 1 / p.duration);
+      const mt = 1 - p.t;
+      p.x = mt * mt * p.startX + 2 * mt * p.t * p.ctrlX + p.t * p.t * p.endX;
+      p.y = mt * mt * p.startY + 2 * mt * p.t * p.ctrlY + p.t * p.t * p.endY;
+      // 벽(방 경계)에 실제로 닿을 때만 사라짐 - 그 전까지는 계속 남아있음
+      if (p.x <= WALL_THICK || p.x >= ROOM_WIDTH - WALL_THICK || p.y <= WALL_THICK || p.y >= ROOM_HEIGHT - WALL_THICK) {
+        projectiles.splice(i, 1); continue;
+      }
+    }
+    const dx = player.x - p.x, dy = player.y - p.y;
+    const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+    const minDist = player.w * 0.5 + p.r;
+    if (dist < minDist) {
+      const alreadyBouncing = Math.hypot(player.knockVX, player.knockVY) > 2;
+      if (!quizOpen || alreadyBouncing) { applyHitToPlayer(p.x, p.y, p.r); projectiles.splice(i, 1); }
+    }
+  }
+
+  interactPromptEl.style.display = (nearbyInteractable && !quizOpen) ? 'block' : 'none';
+}
+
+function px(x, y, w, h, color) {
+  bctx.fillStyle = color;
+  bctx.fillRect(Math.round(x), Math.round(y), Math.round(w), Math.round(h));
+}
+
+function drawBlackDoorMarker(camX, yPos, gapCenterX) {
+  px(gapCenterX - GAP_HALF_X - camX, yPos - 4, GAP_HALF_X * 2, WALL_THICK + 8, '#0a0a12');
+}
+
+function drawCloudPuffs(camX, edgeY, x0, x1) {
+  let x = x0, idx = 0;
+  while (x < x1) {
+    const r = 6 + (idx % 3); // 6~8 사이로 살짝 크기가 달라지는 뭉게구름 느낌 (과하지 않게)
+    const cx = x - camX + r;
+    bctx.fillStyle = '#ffb3c6';
+    bctx.beginPath();
+    bctx.arc(cx, edgeY, r, 0, Math.PI * 2);
+    bctx.fill();
+    bctx.fillStyle = 'rgba(255,255,255,0.3)'; // 아주 옅은 하이라이트로 입체감만 살짝
+    bctx.beginPath();
+    bctx.arc(cx - r * 0.3, edgeY - r * 0.3, r * 0.35, 0, Math.PI * 2);
+    bctx.fill();
+    x += r * 2 - 2; // 살짝 겹치게 이어붙여서 매끈한 뭉게구름 라인이 되게 함
+    idx++;
+  }
+}
+
+function drawWallHorizontal(camX, yPos, isOpen, gapCenterX, doorColor, left, right) {
+  const puffEdgeY = (yPos < ROOM_HEIGHT / 2) ? (yPos + WALL_THICK) : yPos; // 위쪽 벽은 아래쪽 가장자리, 아래쪽 벽은 위쪽 가장자리에 뭉게뭉게
+  if (!isOpen) {
+    px(left - camX, yPos, right - left, WALL_THICK, '#ffb3c6');
+    for (let x = left; x < right; x += 8) px(x - camX, yPos + 2, 4, WALL_THICK - 4, '#ffd6e3');
+    drawCloudPuffs(camX, puffEdgeY, left, right);
+    return;
+  }
+  const leftW = gapCenterX - GAP_HALF_X, rightX = gapCenterX + GAP_HALF_X, rightW = right - rightX;
+  px(left - camX, yPos, leftW - left, WALL_THICK, '#ffb3c6');
+  px(rightX - camX, yPos, rightW, WALL_THICK, '#ffb3c6');
+  for (let x = left; x < leftW; x += 8) px(x - camX, yPos + 2, 4, WALL_THICK - 4, '#ffd6e3');
+  for (let x = rightX; x < right; x += 8) px(x - camX, yPos + 2, 4, WALL_THICK - 4, '#ffd6e3');
+  drawCloudPuffs(camX, puffEdgeY, left, leftW);
+  drawCloudPuffs(camX, puffEdgeY, rightX, right);
+  if (doorColor === 'black') drawBlackDoorMarker(camX, yPos, gapCenterX);
+}
+
+function drawRoomHazards(camX, enemiesArr) {
+  enemiesArr.forEach(en => {
+    const ex = en.x - camX;
+    if (ex < -20 || ex > GAME_W + 20) return;
+    if (en.type === 'wall') {
+      // 벽에 완전히 붙어있는, 가로로 납작한 형태
+      const ww = en.wallW || 40, wh = en.wallH || 10;
+      px(ex - ww / 2, en.y - wh / 2, ww, wh, '#ff9fc0');
+      px(ex - ww / 2 + 3, en.y - wh / 2 + 2, ww - 6, wh - 4, '#ffe1ec');
+    } else if (en.type === 'thrower') {
+      px(ex - en.r * 0.6, en.y - en.r * 0.6, en.r * 1.2, en.r * 1.2, '#9a5ce0');
+      px(ex - en.r * 0.35, en.y - en.r * 0.2, 3, 3, '#ffffff');
+      px(ex + en.r * 0.15, en.y - en.r * 0.2, 3, 3, '#ffffff');
+    } else if (en.type === 'hopper') {
+      // 배경 톤에 맞춘 복숭아빛 통통 튀는 생물
+      px(ex - en.r * 0.6, en.y - en.r * 0.45, en.r * 1.2, en.r * 0.85, '#ffb385');
+      px(ex - en.r * 0.4, en.y - en.r * 0.65, en.r * 0.8, en.r * 0.4, '#ffcda6');
+      px(ex - en.r * 0.28, en.y - en.r * 0.15, 3, 3, '#7a4a2a');
+      px(ex + en.r * 0.1, en.y - en.r * 0.15, 3, 3, '#7a4a2a');
+    } else if (en.type === 'centerHazard') {
+      // 돌 오브젝트 - 회색 톤의 도트 텍스처 (참고 이미지에서 영감만 받아 단순화)
+      px(ex - en.r * 0.65, en.y - en.r * 0.65, en.r * 1.3, en.r * 1.3, '#9a9a9a');
+      px(ex - en.r * 0.5, en.y - en.r * 0.05, en.r * 0.42, en.r * 0.42, '#767676');
+      px(ex + en.r * 0.05, en.y - en.r * 0.5, en.r * 0.38, en.r * 0.38, '#b4b4b4');
+      px(ex - en.r * 0.1, en.y + en.r * 0.18, en.r * 0.3, en.r * 0.3, '#828282');
+      px(ex + en.r * 0.15, en.y + en.r * 0.05, en.r * 0.22, en.r * 0.22, '#c2c2c2');
+    } else if (en.type === 'centerBlock') {
+      // 그냥 막기만 하는 오브젝트 - 가장자리 벽과 같은 핑크 구름 텍스처로 통일
+      px(ex - en.r * 0.75, en.y - en.r, en.r * 1.5, en.r * 2, '#ffb3c6');
+      for (let dy2 = -en.r; dy2 < en.r; dy2 += 8) px(ex - en.r * 0.75 + 2, en.y + dy2 + 2, en.r * 1.5 - 4, 4, '#ffd6e3');
+    } else if (en.type === 'cluePoint') {
+      // 임시: 히든방 단서 오브젝트 - 은은하게 빛나는 구슬 느낌
+      const glow = en.solved ? '#555568' : '#ffe9a8';
+      const core = en.solved ? '#333340' : '#fff6dd';
+      px(ex - en.r * 0.7, en.y - en.r * 0.7, en.r * 1.4, en.r * 1.4, glow);
+      px(ex - en.r * 0.35, en.y - en.r * 0.35, en.r * 0.7, en.r * 0.7, core);
+      if (!en.solved) px(ex - 2, en.y - 5, 4, 8, '#8a6d1a'); // 물음표 느낌의 작은 표시
+    } else if (en.type === 'tutorialBox') {
+      // 튜토리얼 상자 - 열리면 뚜껑이 열린 모습으로
+      if (en.solved) {
+        px(ex - en.r * 0.8, en.y - en.r * 0.3, en.r * 1.6, en.r * 1.1, '#caa06a');
+        px(ex - en.r * 0.6, en.y - en.r * 1.1, en.r * 1.2, en.r * 0.5, '#e8c590'); // 열린 뚜껑
+      } else {
+        px(ex - en.r * 0.8, en.y - en.r * 0.6, en.r * 1.6, en.r * 1.4, '#caa06a');
+        px(ex - en.r * 0.8, en.y - en.r * 0.15, en.r * 1.6, 4, '#8a6a3a');
+        px(ex - 3, en.y - en.r * 0.1, 6, 6, '#5a4020'); // 자물쇠 느낌
+      }
+    } else {
+      px(ex - en.r * 0.6, en.y - en.r * 0.6, en.r * 1.2, en.r * 1.2, '#e05a6b');
+      px(ex - en.r * 0.35, en.y - en.r * 0.2, 3, 3, '#ffffff');
+      px(ex + en.r * 0.15, en.y - en.r * 0.2, 3, 3, '#ffffff');
+    }
+  });
+}
+
+const MAIN_ROOM_GRADIENTS = [
+  ['#9fb8d9', '#f2b6c6', '#f6d3c0'], // 방0: 밝은 낮
+  ['#6f7fae', '#c48aa0', '#d9a98f'], // 방1: 저녁 노을
+  ['#3f4670', '#8a5570', '#a3735f'], // 방2: 어두운 밤 직전
+];
+function drawRoomBackground(isHidden, roomIdxForFlags) {
+  const grad = bctx.createLinearGradient(0, 0, 0, ROOM_HEIGHT);
+  if (isHidden) {
+    // 히든방: 검은색과 남색 그 사이의 어두운 분위기
+    grad.addColorStop(0, '#05040a');
+    grad.addColorStop(0.5, '#0d0f2b');
+    grad.addColorStop(1, '#05040a');
+  } else {
+    // 스테이지(맵)를 진행할수록 배경이 점점 어두워짐
+    const stops = MAIN_ROOM_GRADIENTS[Math.min(roomIdxForFlags || 0, MAIN_ROOM_GRADIENTS.length - 1)];
+    grad.addColorStop(0, stops[0]);
+    grad.addColorStop(0.5, stops[1]);
+    grad.addColorStop(1, stops[2]);
+  }
+  bctx.fillStyle = grad;
+  // 카메라 위치와 무관하게 화면을 항상 덮도록 넉넉하게 채움
+  bctx.fillRect(0, 0, Math.max(ROOM_WIDTH, GAME_W), ROOM_HEIGHT);
+}
+
+// 히든방: "기억이 투영된" 대학원 연구실 느낌 - 반투명한 가구 실루엣이 겹쳐 보이는 이중노출 효과
+function drawLabOverlay(camX, left, right) {
+  bctx.save();
+  bctx.globalAlpha = 0.14;
+  bctx.fillStyle = '#e8ecff';
+  // 탑뷰(위에서 내려다본) 책상 - 단순한 직사각형
+  const deskX = left + 55;
+  px(deskX - camX, ROOM_HEIGHT / 2 - 30, 70, 40, '#e8ecff');
+  // 탑뷰 의자 - 책상 옆 작은 원
+  bctx.globalAlpha = 0.12;
+  bctx.beginPath();
+  bctx.arc(deskX - camX + 35, ROOM_HEIGHT / 2 + 26, 12, 0, Math.PI * 2);
+  bctx.fill();
+  // 탑뷰 책장 - 벽을 따라 길쭉한 직사각형
+  bctx.globalAlpha = 0.16;
+  const shelfX = right - 80;
+  px(shelfX - camX, ROOM_HEIGHT / 2 - 55, 26, 110, '#e8ecff');
+  bctx.globalAlpha = 0.24;
+  for (let i = 0; i < 4; i++) {
+    px(shelfX - camX + 3, ROOM_HEIGHT / 2 - 48 + i * 26, 20, 3, '#0d0f2b');
+  }
+  // 탑뷰 스탠드 조명
+  bctx.globalAlpha = 0.13;
+  bctx.beginPath();
+  bctx.arc(deskX - camX + 60, ROOM_HEIGHT / 2 - 40, 8, 0, Math.PI * 2);
+  bctx.fill();
+  bctx.restore();
+}
+
+// roomIdxForFlags: 위/아래 통로 여부 판단용 방 인덱스. drawPlayerFlag: 플레이어를 이 레이어에 그릴지
+function renderRoomLayer(offsetY, camYOffset, roomIdxForFlags, enemiesArr, camXVal, drawPlayerFlag, projArr, coverInfo) {
+  bctx.save();
+  bctx.beginPath();
+  bctx.rect(0, camYOffset + offsetY, GAME_W, ROOM_HEIGHT);
+  bctx.clip();
+  bctx.translate(0, camYOffset + offsetY);
+
+  const isHidden = isAnyHidden(roomIdxForFlags);
+  const rb = roomBounds(roomIdxForFlags);
+  drawRoomBackground(isHidden, roomIdxForFlags);
+  if (isHidden) drawLabOverlay(camXVal, rb.left, rb.right);
+  drawWallHorizontal(camXVal, 0, topOpen(roomIdxForFlags), topGapX(roomIdxForFlags), topDoorColor(roomIdxForFlags), rb.left, rb.right);
+  if (roomIdxForFlags === EXTRA_HIDDEN_SOURCE_ROOM) {
+    drawBlackDoorMarker(camXVal, 0, EXTRA_TOP_HIDDEN_GAP_X); // 정상 출구 옆에 별도로 뚫린 히든 통로
+  }
+  drawWallHorizontal(camXVal, ROOM_HEIGHT - WALL_THICK, bottomOpen(roomIdxForFlags), bottomGapX(roomIdxForFlags), bottomDoorColor(roomIdxForFlags), rb.left, rb.right);
+  px(rb.left - camXVal, 0, WALL_THICK, ROOM_HEIGHT, isHidden ? '#1a1a30' : '#ffb3c6');
+  if (roomIdxForFlags === MAIN_ROOM_COUNT - 1) {
+    // 마지막 방: 오른쪽 벽 위쪽에 최종 출구가 뚫려있음
+    const rx = rb.right - WALL_THICK;
+    const gapTop = RIGHT_EXIT_Y_CENTER - RIGHT_EXIT_HALF_Y, gapBot = RIGHT_EXIT_Y_CENTER + RIGHT_EXIT_HALF_Y;
+    px(-camXVal + rx, 0, WALL_THICK, gapTop, '#ffb3c6');
+    px(-camXVal + rx, gapBot, WALL_THICK, ROOM_HEIGHT - gapBot, '#ffb3c6');
+    px(-camXVal + rx - 2, gapTop - 3, WALL_THICK + 4, (gapBot - gapTop) + 6, '#ffe08a'); // 최종 출구 강조
+  } else {
+    px(-camXVal + rb.right - WALL_THICK, 0, WALL_THICK, ROOM_HEIGHT, isHidden ? '#1a1a30' : '#ffb3c6');
+  }
+
+  drawRoomHazards(camXVal, enemiesArr);
+
+  if (projArr) {
+    projArr.forEach(p => {
+      const ex = p.x - camXVal;
+      // 어두운 보라 테두리 + 밝은 보라 속을 겹쳐 그려서 배경 위에서도 잘 보이게 함
+      px(ex - p.r / 2 - 1, p.y - p.r / 2 - 1, p.r + 2, p.r + 2, '#5a2f8f');
+      px(ex - p.r / 2, p.y - p.r / 2, p.r, p.r, '#c99bff');
+    });
+  }
+
+  if (drawPlayerFlag) {
+    const pxScreen = player.x - camXVal;
+    const bodyColor = player.stunTimer > 0 ? '#ff5c5c' : '#ffffff';
+    px(pxScreen - player.w/2, player.y - player.h/2, player.w, player.h, bodyColor);
+    px(pxScreen - player.w/2 + 2, player.y - player.h/2 + 3, 3, 3, '#4a7fd6');
+    px(pxScreen + player.w/2 - 5, player.y - player.h/2 + 3, 3, 3, '#4a7fd6');
+  }
+
+  // 문을 넘어가는 진행도만큼, 떠나는 쪽 방을 입구/출구 쪽부터 서서히 검게 덮음 (되돌아오면 다시 걷힘)
+  if (coverInfo && coverInfo.frac > 0) {
+    const coverH = ROOM_HEIGHT * coverInfo.frac;
+    bctx.fillStyle = '#000000';
+    if (coverInfo.side === 'top') bctx.fillRect(0, 0, ROOM_WIDTH, coverH);
+    else bctx.fillRect(0, ROOM_HEIGHT - coverH, ROOM_WIDTH, coverH);
+  }
+  bctx.restore();
+}
+
+// 단서 미니게임 진입 애니메이션 중 배경으로 보여줄 현재 방의 단순 렌더 (교차 미리보기 없이)
+function drawRoomSingleLayerToBuf() {
+  const camYOffset = (GAME_H - ROOM_HEIGHT) / 2;
+  bctx.fillStyle = '#1a1a2e';
+  bctx.fillRect(0, 0, GAME_W, GAME_H);
+  renderRoomLayer(0, camYOffset, roomIndex, enemies, currentCamX(), true, projectiles, null);
+  if (camYOffset > 0) {
+    const marginColor = isAnyHidden(roomIndex) ? '#05040a' : '#ffb3c6';
+    bctx.fillStyle = marginColor;
+    bctx.fillRect(0, 0, GAME_W, camYOffset);
+    bctx.fillRect(0, GAME_H - camYOffset, GAME_W, camYOffset);
+    if (!isAnyHidden(roomIndex)) {
+      drawCloudPuffs(0, camYOffset, 0, GAME_W);
+      drawCloudPuffs(0, GAME_H - camYOffset, 0, GAME_W);
+    }
+  }
+}
+function drawRoomSingleLayer() {
+  drawRoomSingleLayerToBuf();
+  const w2 = canvas.width, h2 = canvas.height;
+  ctx.fillStyle = '#4a4a52';
+  ctx.fillRect(0, 0, w2, h2);
+  const scale2 = Math.min(w2 / GAME_W, h2 / GAME_H);
+  const dw2 = GAME_W * scale2, dh2 = GAME_H * scale2;
+  ctx.drawImage(buf, Math.floor((w2 - dw2) / 2), Math.floor((h2 - dh2) / 2), dw2, dh2);
+}
+// 상자를 발견했을 때: 화면이 상자 쪽으로 살짝 확대됐다가 다시 원래대로 돌아오는 연출
+function drawRoomZoomed(zoomScale, focusWorldX, focusWorldY) {
+  drawRoomSingleLayerToBuf();
+  const w2 = canvas.width, h2 = canvas.height;
+  ctx.fillStyle = '#4a4a52';
+  ctx.fillRect(0, 0, w2, h2);
+  const baseScale = Math.min(w2 / GAME_W, h2 / GAME_H);
+  const scale2 = baseScale * zoomScale;
+  const dw2 = GAME_W * scale2, dh2 = GAME_H * scale2;
+  // 초점이 화면 중앙에 오도록 오프셋 계산 (focus는 버퍼 좌표계 기준)
+  const camYOffset = (GAME_H - ROOM_HEIGHT) / 2;
+  const focusBufX = focusWorldX - currentCamX();
+  const focusBufY = focusWorldY + camYOffset;
+  const baseDx = (w2 - GAME_W * baseScale) / 2, baseDy = (h2 - GAME_H * baseScale) / 2;
+  const centerScreenX = baseDx + focusBufX * baseScale, centerScreenY = baseDy + focusBufY * baseScale;
+  const dx2 = centerScreenX - focusBufX * scale2, dy2 = centerScreenY - focusBufY * scale2;
+  ctx.drawImage(buf, dx2, dy2, dw2, dh2);
+}
+
+function draw() {
+  const w = canvas.width, h = canvas.height;
+
+  if (gameState === 'clueGame') {
+    drawClueGame();
+    ctx.fillStyle = '#4a4a52';
+    ctx.fillRect(0, 0, w, h);
+    const scale0 = Math.min(w / GAME_W, h / GAME_H);
+    const dw0 = GAME_W * scale0, dh0 = GAME_H * scale0;
+    ctx.drawImage(buf, Math.floor((w - dw0) / 2), Math.floor((h - dh0) / 2), dw0, dh0);
+    return;
+  }
+
+  if (gameState === 'boxNotice' && boxNoticeTarget) {
+    const zoom = 1 + (BOX_NOTICE_MAX_ZOOM - 1) * boxNoticeZoomAmount();
+    drawRoomZoomed(zoom, boxNoticeTarget.x, boxNoticeTarget.y);
+    return;
+  }
+
+  if (gameState === 'clueGameEnter') {
+    drawRoomSingleLayer();
+    const t = clueGameEnterTimer / CLUE_ENTER_DURATION;
+    const maxR = Math.hypot(w, h);
+    ctx.save();
+    ctx.globalAlpha = Math.min(1, t * 1.2);
+    ctx.beginPath();
+    ctx.arc(w / 2, h / 2, maxR * t, 0, Math.PI * 2);
+    ctx.fillStyle = '#bdf5e0';
+    ctx.fill();
+    ctx.restore();
+    return;
+  }
+
+  const camYOffset = (GAME_H - ROOM_HEIGHT) / 2;
+
+  bctx.fillStyle = '#1a1a2e';
+  bctx.fillRect(0, 0, GAME_W, GAME_H);
+
+  // 실제로 캐릭터가 지금 문틈을 넘어가고 있는 중인지(=벽 두께를 이미 넘어섰는지)를 매 프레임 계산해서,
+  // 그 진행도만큼 다음 방을 실시간으로 겹쳐 보여줌 (정해진 시간이 아니라 실제 이동에 따라 움직임)
+  const hw = player.w / 2, hh = player.h / 2;
+  let peek = null;
+  if (player.y - hh < WALL_THICK) {
+    const info = resolveTopCrossing(hw);
+    if (info.matched) {
+      const bleed = Math.max(0, WALL_THICK - (player.y - hh));
+      if (bleed > 0) peek = { destIdx: info.destIdx, dirSign: 1, frac: Math.min(1, bleed / CROSS_MARGIN) };
+    }
+  }
+  if (!peek && player.y + hh > ROOM_HEIGHT - WALL_THICK) {
+    const info = resolveBottomCrossing(hw);
+    if (info.matched) {
+      const bleed = Math.max(0, (player.y + hh) - (ROOM_HEIGHT - WALL_THICK));
+      if (bleed > 0) peek = { destIdx: info.destIdx, dirSign: -1, frac: Math.min(1, bleed / CROSS_MARGIN) };
+    }
+  }
+
+  if (peek) {
+    const oldOffset = peek.dirSign * peek.frac * GAME_H;
+    const newOffset = oldOffset - peek.dirSign * GAME_H;
+    const coverSide = peek.dirSign === 1 ? 'top' : 'bottom';
+    renderRoomLayer(oldOffset, camYOffset, roomIndex, enemies, currentCamX(), true, projectiles, { side: coverSide, frac: peek.frac });
+    // 히든방으로 "들어가거나" 히든방에서 "나올" 때는 다음 방을 미리 보여주지 않고,
+    // 원래 맵이 검게 덮이기만 하다가 완전히 전환된 뒤에 보이게 함 (정지된 적이 미리 보이는 부자연스러움 방지)
+    if (!isAnyHidden(peek.destIdx) && !isAnyHidden(roomIndex)) {
+      renderRoomLayer(newOffset, camYOffset, peek.destIdx, rooms[peek.destIdx], currentCamX(), false, null, null);
+    }
+  } else {
+    renderRoomLayer(0, camYOffset, roomIndex, enemies, currentCamX(), true, projectiles, null);
+  }
+
+  // 방 위/아래로 살짝 남는 여백도 벽처럼(구름 무늬) 채워서 배경이 뜨지 않게 함 (히든방이면 어둡게)
+  if (!peek && camYOffset > 0) {
+    const marginColor = isAnyHidden(roomIndex) ? '#05040a' : '#ffb3c6';
+    bctx.fillStyle = marginColor;
+    bctx.fillRect(0, 0, GAME_W, camYOffset);
+    bctx.fillRect(0, GAME_H - camYOffset, GAME_W, camYOffset);
+    if (!isAnyHidden(roomIndex)) {
+      drawCloudPuffs(0, camYOffset, 0, GAME_W);
+      drawCloudPuffs(0, GAME_H - camYOffset, 0, GAME_W);
+    }
+  }
+
+  ctx.fillStyle = '#4a4a52';
+  ctx.fillRect(0, 0, w, h);
+  const scale = Math.min(w / GAME_W, h / GAME_H);
+  const drawW = GAME_W * scale, drawH = GAME_H * scale;
+  const dx = Math.floor((w - drawW) / 2), dy = Math.floor((h - drawH) / 2);
+  ctx.drawImage(buf, dx, dy, drawW, drawH);
+}
+
+function loop() {
+  update();
+  draw();
+  requestAnimationFrame(loop);
+}
+resize();
+loop();
+</script>
+</body>
+</html>
