@@ -3,7 +3,7 @@
  * 역할: 게임 전체가 같이 쓰는 기본 준비물
  * 들어있는 것: HTML 요소 가져오기, 게임 상태 변수(gameState, quizOpen 등), 화면 비율(해상도) 설정, 화면 크기/세로모드 감지(resize)
  * 먼저 로드돼야 하는 파일: 없음 (가장 먼저)
- * 주의: gameState 값 목록: title / story / playing / settings / clueGame / clueGameEnter / boxNotice. 새 상태를 추가하면 update()와 draw()에도 처리를 넣어야 함
+ * 주의: gameState 값 목록: title / story / playing / settings / clueGame / clueGameCircle / clueGameCompute / clueGameEnter / boxNotice. 새 상태를 추가하면 update()와 draw()에도 처리를 넣어야 함
  * ============================================================ */
 
 const canvas = document.getElementById('gameCanvas');
